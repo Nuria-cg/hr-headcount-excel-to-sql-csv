@@ -1,351 +1,161 @@
-# LIMPIEZA_DATOS.py
+# rrhh-limpieza-plantilla-csv-sql
 
-## Descripción general
+Limpieza y normalización de un Excel de plantilla de personal (RRHH/nómina) para generar un CSV listo para cargar en SQL.
 
-Este script procesa un fichero Excel de entrada con datos de personal y genera un fichero CSV limpio en una carpeta `SQL`.
+> Script: `LIMPIEZA_DATOS.py` · Entrada: `.xlsx` · Salida: `SQL/<nombre>.csv`
 
-El objetivo es:
+## Qué hace (resumen)
 
-- localizar automáticamente la fila real de cabeceras aunque el Excel tenga filas previas de título o resumen
-- normalizar nombres de columnas para trabajar con cabeceras consistentes
-- aplicar reglas de limpieza y filtrado sobre los datos
-- formatear fechas y columnas numéricas para dejar la salida preparada para carga o consumo posterior
+Toma un Excel exportado del sistema de personal, con filas de título o resumen antes de la tabla real, y aplica reglas de negocio. Genera un CSV limpio con:
 
-La salida se guarda en formato CSV con el mismo nombre base del fichero de entrada.
+- cabeceras normalizadas
+- filas no válidas eliminadas
+- códigos de empresa unificados
+- fechas en formato único
+- sin acentos
+- códigos numéricos como enteros
 
-Ejemplo:
-
-- entrada: `prueba3.xlsx`
-- salida: `SQL/prueba3.csv`
-
-## Diagrama rápido
-
-```text
-Excel de entrada
-      |
-      v
-Detección automática de cabecera
-      |
-      v
-Normalización de nombres de columnas
-      |
-      v
-Filtros y reglas de negocio
-      |
-      v
-Limpieza de textos y fechas
-      |
-      v
-Conversión de columnas numéricas a enteros
-      |
-      v
-CSV final en carpeta SQL
-```
-
-## Diagrama de flujo
-
-```mermaid
-flowchart TD
-    A[Excel de entrada] --> B[Resolver ruta de entrada]
-    B --> C[Crear carpeta SQL si no existe]
-    C --> D[Detectar fila real de cabeceras]
-    D --> E[Cargar Excel con la cabecera correcta]
-    E --> F[Limpiar y normalizar nombres de columnas]
-    F --> G[Validar columnas obligatorias]
-    G --> H[Eliminar Empresa = 1001 o Totales]
-    H --> I[Reemplazar Empresa 1912 y 2281 por 24]
-    I --> J[Eliminar filas con No cotiza S.S.]
-    J --> K[Limpiar bajas por fusion/absorcion]
-    K --> L[Vaciar Fecha_baja si no hay causa]
-    L --> M[Formatear fechas YYYY/mm/DD]
-    M --> N[Quitar acentos conservando ñ]
-    N --> O[Convertir columnas numericas a enteros]
-    O --> P[Generar CSV en SQL/<nombre>.csv]
-```
+Los datos son personales (nombre, fecha de nacimiento, bajas), por lo que el Excel y el CSV deben tratarse conforme a RGPD/LPD. No deben subirse al repositorio.
 
 ## Requisitos
 
-- Python 3
+- Python 3.9 o superior
 - `pandas`
 - `openpyxl`
 - `numpy`
 
+```bash
+pip install pandas openpyxl numpy
+```
+
 ## Uso
 
-Ejecuta el script pasando como parámetro el fichero Excel que quieres procesar.
-
 ```bash
-python LIMPIEZA_DATOS.py prueba3.xlsx
+python LIMPIEZA_DATOS.py plantilla.xlsx
+python LIMPIEZA_DATOS.py /ruta/completa/plantilla.xlsx
 ```
 
-También puedes pasar una ruta completa:
+Una ruta relativa se resuelve respecto a la carpeta donde está el script, **no** respecto al directorio desde el que se lanza.
 
-```bash
-python LIMPIEZA_DATOS.py /ruta/completa/archivo.xlsx
-```
-
-Si la ruta es relativa, el script la resuelve respecto a la carpeta en la que está guardado el propio script.
-
-## Carpeta y nombre de salida
-
-El script crea, si no existe, una carpeta llamada `SQL` dentro de la carpeta donde está el Excel de entrada.
-
-Después genera el CSV de salida con esta regla:
-
-- carpeta: `SQL`
-- nombre: el mismo nombre base del Excel
-- extensión: `.csv`
-
-Ejemplo:
-
-- entrada: `/Datos/prueba3.xlsx`
-- salida: `/Datos/SQL/prueba3.csv`
-
-## Qué hace el script paso a paso
-
-### 1. Resuelve el archivo de entrada
-
-La función `resolver_ruta_entrada()`:
-
-- comprueba que se ha pasado un argumento por línea de comandos
-- convierte la ruta a absoluta si hace falta
-- valida que el fichero exista
-
-Si no se pasa fichero, el script termina mostrando:
+Salida:
 
 ```text
-Uso: python LIMPIEZA_DATOS.py <archivo_excel>
+OK: archivo generado en /ruta/SQL/plantilla.csv
 ```
 
-### 2. Construye la ruta de salida
+- La carpeta `SQL` se crea junto al Excel de entrada.
+- El CSV conserva el nombre base del Excel.
+- Codificación `utf-8-sig`, separador `,` y sin índice.
+- Excel suele abrir bien ese CSV con tildes y `ñ`.
 
-La función `construir_ruta_salida()`:
+## Flujo
 
-- crea la carpeta `SQL` si no existe
-- devuelve la ruta del CSV final
+```mermaid
+flowchart TD
+    A[Excel de entrada] --> B[Resolver ruta y crear carpeta SQL]
+    B --> C[Detectar fila real de cabeceras]
+    C --> D[Cargar Excel y normalizar columnas]
+    D --> E[Validar columnas obligatorias]
+    E --> F[Eliminar Empresa 1001 / Totales]
+    F --> G[Unificar Empresa 1912 y 2281 en 24]
+    G --> H[Eliminar No cotiza S.S.]
+    H --> I[Limpiar bajas por fusión]
+    I --> J[Vaciar Fecha_baja sin causa]
+    J --> K[Fechas a YYYY/mm/DD]
+    K --> L[Quitar acentos]
+    L --> M[Columnas numéricas a entero]
+    M --> N[CSV en SQL/nombre.csv]
+```
 
-### 3. Detecta automáticamente la fila de cabeceras
+## Detección de cabecera
 
-Muchos Excel de origen no tienen las cabeceras en la primera fila porque incluyen:
+Lee las 10 primeras filas sin cabecera. Usa como cabecera la primera fila que, tras normalizar, contenga a la vez `Empresa` y `Nombre_empleado`. Si no la encuentra, lanza `ValueError`.
 
-- títulos
-- resúmenes
-- filas vacías
-- textos auxiliares
+## Normalización de cabeceras
 
-La función `detectar_fila_cabecera()`:
+Quita espacios y acentos, sustituye cualquier carácter no alfanumérico por `_` y colapsa los `_` repetidos. Conserva `ñ` y `Ñ`.
 
-- lee las primeras 10 filas del Excel sin asumir cabecera
-- limpia provisionalmente los valores de cada fila
-- busca una fila que contenga simultáneamente las columnas `Empresa` y `Nombre_empleado`
+| Original | Resultado |
+|---|---|
+| `Empleado -  Código` | `Empleado_Codigo` |
+| `Cotización seguridad soci` | `Cotizacion_seguridad_soci` |
+| `Días percepción I.T.` | `Dias_percepcion_I_T` |
 
-Cuando la encuentra, esa fila se usa como `header` real al cargar el Excel.
+## Columnas obligatorias
 
-## Limpieza de cabeceras
+`Empresa`, `Cotizacion_seguridad_soci`, `Causa_de_la_baja`, `Fecha_baja`, `Fecha_alta`, `Fecha_nacimiento`, `Fecha_antiguedad`.
 
-Después de leer el Excel, el script normaliza todos los nombres de columna con `limpiar_cabecera()`.
+Si falta alguna, el error lista las que faltan y las detectadas.
 
-Esta limpieza hace lo siguiente:
+## Reglas de negocio
 
-- elimina espacios al principio y al final
-- elimina acentos, pero conserva `ñ` y `Ñ`
-- sustituye separadores y símbolos por `_`
-- elimina repeticiones de `_`
-- elimina `_` al principio o al final
+Se aplican en este orden:
 
-Ejemplos:
+| # | Regla |
+|---|---|
+| 1 | Elimina las filas con `Empresa` = `1001` o `Totales`. Esta última es la fila de totales del informe. |
+| 2 | Sustituye `Empresa` `1912` y `2281` por `24`. Son códigos de empresas fusionadas. |
+| 3 | Elimina las filas con `Cotizacion_seguridad_soci` = `No cotiza S.S.`. |
+| 4 | Si `Causa_de_la_baja` es exactamente `Baja por fusión absorción empresa`, vacía `Fecha_baja` y `Causa_de_la_baja`. No se considera una baja real. |
+| 5 | Si hay `Fecha_baja` válida pero `Causa_de_la_baja` está vacía, vacía `Fecha_baja`. |
+| 6 | Convierte `Fecha_alta`, `Fecha_nacimiento`, `Fecha_antiguedad` y `Fecha_baja` a `YYYY/mm/DD`. Si no son fechas válidas, quedan vacías. |
+| 7 | Quita tildes y diéresis de todo el texto, conservando `ñ`/`Ñ`. |
+| 8 | Convierte a entero sin decimales (`4.0` pasa a `4`, vacío sigue vacío): `Empleado_Codigo`, `Dias_alta_en_la_empresa_p`, `Tarifa`, `Codigo_categoria`, `Codigo_contrato`, `Dias_percepcion_I_T`, `Dias_accidente`. |
 
-- `Empleado -  Código` -> `Empleado_Codigo`
-- `Cotización seguridad soci` -> `Cotizacion_seguridad_soci`
-- `Días percepción I.T.` -> `Dias_percepcion_I_T`
+Los números de empresa y los textos de las reglas 3 y 4 están escritos directamente en el código. Si cambian en origen, hay que actualizarlos.
 
-## Validación de columnas obligatorias
+## Errores controlados
 
-El script comprueba que existan estas columnas mínimas:
+| Situación | Mensaje |
+|---|---|
+| Sin argumento | `Uso: python LIMPIEZA_DATOS.py <archivo_excel>` |
+| Fichero inexistente | `FileNotFoundError` con la ruta |
+| Cabecera no localizada | `No se ha encontrado la fila de cabeceras en el Excel` |
+| Faltan columnas | `ValueError` con las faltantes y las detectadas |
 
-- `Empresa`
-- `Cotizacion_seguridad_soci`
-- `Causa_de_la_baja`
-- `Fecha_baja`
-- `Fecha_alta`
-- `Fecha_nacimiento`
-- `Fecha_antiguedad`
+## Correcciones necesarias en el script
 
-Si falta alguna, lanza un error con el detalle de las columnas detectadas.
+Se han detectado dos problemas al revisar el código. Hay que corregirlos para que el script y este README coincidan.
 
-## Reglas de transformación aplicadas
+### 1. Error de sintaxis al inicio del fichero (el script no arranca)
 
-### Regla 1. Eliminar filas por empresa
-
-Se eliminan las filas donde `Empresa` sea:
-
-- `1001`
-- `Totales`
-
-Comparación aplicada tras convertir el valor a texto y eliminar espacios laterales.
-
-### Regla 2. Sustitución de códigos de empresa
-
-En la columna `Empresa`:
-
-- `1912` se sustituye por `24`
-- `2281` se sustituye por `24`
-
-### Regla 3. Eliminar filas que no cotizan a la Seguridad Social
-
-Se eliminan las filas donde:
-
-- `Cotizacion_seguridad_soci == "No cotiza S.S."`
-
-### Regla 4. Limpieza de bajas por fusión/absorción
-
-Si `Causa_de_la_baja` contiene exactamente:
+Las líneas 1 y 2 son:
 
 ```text
-Baja por fusión absorción empresa
+#Python
+Python script
 ```
 
-entonces el script vacía:
+La segunda es texto suelto y provoca `SyntaxError`. Hay que borrar ambas líneas, o comentar la segunda con `#`.
 
-- `Fecha_baja`
-- `Causa_de_la_baja`
+### 2. La `ñ` no se conserva: se convierte en `n`
 
-Internamente estos vacíos se guardan como nulos para evitar errores de tipos en `pandas`.
+`unicodedata.normalize("NFD", ...)` descompone `ñ` en `n` más una tilde combinada (U+0303). Por eso la comparación `caracter == "ñ"` nunca se cumple. La tilde se elimina por ser categoría `Mn`, y `niñez` acaba como `ninez`. Afecta a los valores y a las cabeceras.
 
-### Regla 5. Borrar fecha de baja si no hay causa
+Propuesta para `quitar_acentos`: conservar la tilde U+0303 solo cuando va detrás de `n` o `N`.
 
-Si:
+```python
+def quitar_acentos(valor):
+    if not isinstance(valor, str):
+        return valor
 
-- `Fecha_baja` contiene una fecha válida
-- y `Causa_de_la_baja` está vacía o nula
+    resultado = []
+    for caracter in unicodedata.normalize("NFD", valor):
+        if caracter == "̃" and resultado and resultado[-1] in "nN":
+            resultado.append(caracter)
+        elif unicodedata.category(caracter) != "Mn":
+            resultado.append(caracter)
 
-entonces se elimina el contenido de `Fecha_baja`.
-
-### Regla 6. Formateo de fechas
-
-Las columnas:
-
-- `Fecha_alta`
-- `Fecha_nacimiento`
-- `Fecha_antiguedad`
-- `Fecha_baja`
-
-se convierten al formato:
-
-```text
-YYYY/mm/DD
+    return unicodedata.normalize("NFC", "".join(resultado))
 ```
 
-Ejemplo:
+Con este cambio, `niñez` pasa a `niñez` y `TÉCNICOS` pasa a `TECNICOS`.
 
-- `2024/06/17`
+## Limitaciones conocidas
 
-Si el valor no es una fecha válida, queda vacío en la salida.
-
-### Regla 7. Eliminación de acentos en todo el DataFrame
-
-El script aplica `quitar_acentos()` a todas las celdas.
-
-Comportamiento:
-
-- elimina tildes y diéresis
-- conserva `ñ` y `Ñ`
-- no rompe valores nulos
-- no altera números ni otros tipos no texto
-
-Ejemplos:
-
-- `TÉCNICOS` -> `TECNICOS`
-- `Categoría` -> `Categoria`
-- `niñez` -> `niñez`
-
-### Regla 8. Conversión de columnas numéricas a enteros sin decimales
-
-Estas columnas se fuerzan a formato entero sin decimales:
-
-- `Empleado_Codigo`
-- `Dias_alta_en_la_empresa_p`
-- `Tarifa`
-- `Codigo_categoria`
-- `Codigo_contrato`
-- `Dias_percepcion_I_T`
-- `Dias_accidente`
-
-Regla aplicada:
-
-- si el valor es numérico, se convierte a entero y después a texto sin `.0`
-- si el valor no existe, queda vacío
-
-Ejemplos:
-
-- `4.0` -> `4`
-- `30.0` -> `30`
-- vacío -> vacío
-
-## Formato final del CSV
-
-El fichero se guarda con:
-
-- separador CSV por defecto de `pandas`
-- `encoding="utf-8-sig"`
-- sin índice
-
-Eso permite abrirlo con Excel conservando bien caracteres especiales en la mayoría de casos.
-
-## Ejemplo de flujo completo
-
-```bash
-python LIMPIEZA_DATOS.py prueba3.xlsx
-```
-
-Resultado esperado:
-
-```text
-OK: archivo generado en /ruta/de/la/carpeta/SQL/prueba3.csv
-```
-
-## Errores controlados habituales
-
-### No se pasa fichero de entrada
-
-Error:
-
-```text
-Uso: python LIMPIEZA_DATOS.py <archivo_excel>
-```
-
-### El fichero no existe
-
-Error indicando la ruta exacta no encontrada.
-
-### No se detecta la fila de cabeceras
-
-Error:
-
-```text
-No se ha encontrado la fila de cabeceras en el Excel
-```
-
-### Faltan columnas obligatorias
-
-Error detallando:
-
-- qué columnas faltan
-- qué columnas se han detectado realmente
-
-## Resumen funcional
-
-En una sola ejecución, el script:
-
-1. recibe un Excel
-2. detecta la fila real de cabeceras
-3. normaliza nombres de columnas
-4. filtra y corrige registros
-5. limpia textos
-6. formatea fechas
-7. convierte determinados campos a enteros sin decimales
-8. genera un CSV en la carpeta `SQL`
-
-
-
-
+- **Ejecución al importar.** Todo el procesado está a nivel de módulo, sin `main()` ni `if __name__ == "__main__"`. No se puede importar ni testear sin que se ejecute.
+- **Reglas fijas.** Los códigos de empresa y los textos de baja están escritos en el código.
+- **Cabecera en las 10 primeras filas.** Si hay más filas previas, no la detecta.
+- **Sin informe de descartes.** No indica cuántas filas se eliminan por cada regla.
+- **Separador CSV.** Es `,`. Si el destino espera `;`, hay que indicarlo en `to_csv`.
+- **Datos personales.** El Excel y el CSV nunca deben subirse al repositorio. Se recomienda añadir `*.xlsx`, `*.csv` y `SQL/` a `.gitignore`.
