@@ -1,25 +1,25 @@
-# rrhh-limpieza-plantilla-csv-sql
+# hr-headcount-excel-to-sql-csv
 
-Limpieza y normalización de un Excel de plantilla de personal (RRHH/nómina) para generar un CSV listo para cargar en SQL.
+Cleans and normalizes an HR headcount Excel export and produces a CSV ready to be loaded into SQL.
 
-> Script: `LIMPIEZA_DATOS.py` · Entrada: `.xlsx` · Salida: `SQL/<nombre>.csv`
+> Script: `LIMPIEZA_DATOS.py` · Input: `.xlsx` · Output: `SQL/<name>.csv`
 
-## Qué hace (resumen)
+## What it does
 
-Toma un Excel exportado del sistema de personal, con filas de título o resumen antes de la tabla real, y aplica reglas de negocio. Genera un CSV limpio con:
+The script takes an Excel file exported from a payroll/HR system. These files usually have title or summary rows above the real table. It applies a set of business rules and writes a clean CSV with:
 
-- cabeceras normalizadas
-- filas no válidas eliminadas
-- códigos de empresa unificados
-- fechas en formato único
-- sin acentos
-- códigos numéricos como enteros
+- normalized column headers
+- invalid rows removed
+- unified company codes
+- a single date format
+- accents removed (`ñ` preserved)
+- numeric codes stored as integers
 
-Los datos son personales (nombre, fecha de nacimiento, bajas), por lo que el Excel y el CSV deben tratarse conforme a RGPD/LPD. No deben subirse al repositorio.
+**Personal data notice:** the file contains personal data (employee names, birth dates, terminations). Treat both the Excel and the CSV in line with GDPR/LOPDGDD. Never commit them to the repository.
 
-## Requisitos
+## Requirements
 
-- Python 3.9 o superior
+- Python 3.9 or later
 - `pandas`
 - `openpyxl`
 - `numpy`
@@ -28,134 +28,110 @@ Los datos son personales (nombre, fecha de nacimiento, bajas), por lo que el Exc
 pip install pandas openpyxl numpy
 ```
 
-## Uso
+## Usage
 
 ```bash
-python LIMPIEZA_DATOS.py plantilla.xlsx
-python LIMPIEZA_DATOS.py /ruta/completa/plantilla.xlsx
+python LIMPIEZA_DATOS.py headcount.xlsx
+python LIMPIEZA_DATOS.py /full/path/to/headcount.xlsx
 ```
 
-Una ruta relativa se resuelve respecto a la carpeta donde está el script, **no** respecto al directorio desde el que se lanza.
+A relative path is resolved against the folder where the script lives, **not** against the directory you run it from.
 
-Salida:
+Expected output:
 
 ```text
-OK: archivo generado en /ruta/SQL/plantilla.csv
+OK: archivo generado en /path/SQL/headcount.csv
 ```
 
-- La carpeta `SQL` se crea junto al Excel de entrada.
-- El CSV conserva el nombre base del Excel.
-- Codificación `utf-8-sig`, separador `,` y sin índice.
-- Excel suele abrir bien ese CSV con tildes y `ñ`.
+## Output
 
-## Flujo
+- A `SQL` folder is created next to the input Excel file if it does not exist.
+- The CSV keeps the base name of the Excel file (`headcount.xlsx` → `SQL/headcount.csv`).
+- Encoding is `utf-8-sig`, the separator is `,` and no index column is written.
+- Excel normally opens this CSV with accents and `ñ` displayed correctly.
+
+## Processing flow
 
 ```mermaid
 flowchart TD
-    A[Excel de entrada] --> B[Resolver ruta y crear carpeta SQL]
-    B --> C[Detectar fila real de cabeceras]
-    C --> D[Cargar Excel y normalizar columnas]
-    D --> E[Validar columnas obligatorias]
-    E --> F[Eliminar Empresa 1001 / Totales]
-    F --> G[Unificar Empresa 1912 y 2281 en 24]
-    G --> H[Eliminar No cotiza S.S.]
-    H --> I[Limpiar bajas por fusión]
-    I --> J[Vaciar Fecha_baja sin causa]
-    J --> K[Fechas a YYYY/mm/DD]
-    K --> L[Quitar acentos]
-    L --> M[Columnas numéricas a entero]
-    M --> N[CSV en SQL/nombre.csv]
+    A[Input Excel] --> B[Resolve path and create SQL folder]
+    B --> C[Detect real header row]
+    C --> D[Load Excel and normalize column names]
+    D --> E[Validate required columns]
+    E --> F[Drop Empresa 1001 / Totales]
+    F --> G[Map Empresa 1912 and 2281 to 24]
+    G --> H[Drop No cotiza S.S.]
+    H --> I[Clear merger/absorption terminations]
+    I --> J[Clear Fecha_baja without a cause]
+    J --> K[Dates to YYYY/mm/DD]
+    K --> L[Remove accents]
+    L --> M[Numeric columns to integers]
+    M --> N[Write SQL/name.csv]
 ```
 
-## Detección de cabecera
+## Header row detection
 
-Lee las 10 primeras filas sin cabecera. Usa como cabecera la primera fila que, tras normalizar, contenga a la vez `Empresa` y `Nombre_empleado`. Si no la encuentra, lanza `ValueError`.
+The script reads the first 10 rows without assuming a header. It uses as the header the first row that, after normalization, contains both `Empresa` and `Nombre_empleado`. If none is found, it raises `ValueError`.
 
-## Normalización de cabeceras
+## Column name normalization
 
-Quita espacios y acentos, sustituye cualquier carácter no alfanumérico por `_` y colapsa los `_` repetidos. Conserva `ñ` y `Ñ`.
+Every column name is cleaned: surrounding spaces are trimmed, accents are removed, any non-alphanumeric run becomes `_`, repeated `_` are collapsed and leading/trailing `_` are stripped. `ñ` and `Ñ` are preserved.
 
-| Original | Resultado |
+| Original | Result |
 |---|---|
 | `Empleado -  Código` | `Empleado_Codigo` |
 | `Cotización seguridad soci` | `Cotizacion_seguridad_soci` |
 | `Días percepción I.T.` | `Dias_percepcion_I_T` |
 
-## Columnas obligatorias
+## Required columns
 
 `Empresa`, `Cotizacion_seguridad_soci`, `Causa_de_la_baja`, `Fecha_baja`, `Fecha_alta`, `Fecha_nacimiento`, `Fecha_antiguedad`.
 
-Si falta alguna, el error lista las que faltan y las detectadas.
+If any is missing, the error lists the missing columns and the columns actually detected.
 
-## Reglas de negocio
+## Business rules
 
-Se aplican en este orden:
+Rules are applied in this order:
 
-| # | Regla |
+| # | Rule |
 |---|---|
-| 1 | Elimina las filas con `Empresa` = `1001` o `Totales`. Esta última es la fila de totales del informe. |
-| 2 | Sustituye `Empresa` `1912` y `2281` por `24`. Son códigos de empresas fusionadas. |
-| 3 | Elimina las filas con `Cotizacion_seguridad_soci` = `No cotiza S.S.`. |
-| 4 | Si `Causa_de_la_baja` es exactamente `Baja por fusión absorción empresa`, vacía `Fecha_baja` y `Causa_de_la_baja`. No se considera una baja real. |
-| 5 | Si hay `Fecha_baja` válida pero `Causa_de_la_baja` está vacía, vacía `Fecha_baja`. |
-| 6 | Convierte `Fecha_alta`, `Fecha_nacimiento`, `Fecha_antiguedad` y `Fecha_baja` a `YYYY/mm/DD`. Si no son fechas válidas, quedan vacías. |
-| 7 | Quita tildes y diéresis de todo el texto, conservando `ñ`/`Ñ`. |
-| 8 | Convierte a entero sin decimales (`4.0` pasa a `4`, vacío sigue vacío): `Empleado_Codigo`, `Dias_alta_en_la_empresa_p`, `Tarifa`, `Codigo_categoria`, `Codigo_contrato`, `Dias_percepcion_I_T`, `Dias_accidente`. |
+| 1 | Drop rows where `Empresa` is `1001` or `Totales` (`Totales` is the report's totals row). Compared as trimmed text. |
+| 2 | Replace `Empresa` `1912` and `2281` with `24` (codes of merged companies). |
+| 3 | Drop rows where `Cotizacion_seguridad_soci` is `No cotiza S.S.` (employees not paying social security). |
+| 4 | If `Causa_de_la_baja` is exactly `Baja por fusión absorción empresa`, clear both `Fecha_baja` and `Causa_de_la_baja`. This is not a real termination. |
+| 5 | If `Fecha_baja` holds a valid date but `Causa_de_la_baja` is empty, clear `Fecha_baja`. |
+| 6 | Format `Fecha_alta`, `Fecha_nacimiento`, `Fecha_antiguedad` and `Fecha_baja` as `YYYY/mm/DD`. Invalid values become empty. |
+| 7 | Strip accents and diaeresis from all text cells, preserving `ñ`/`Ñ`. Nulls and non-text values are left untouched. |
+| 8 | Convert to integers without decimals (`4.0` → `4`, empty stays empty): `Empleado_Codigo`, `Dias_alta_en_la_empresa_p`, `Tarifa`, `Codigo_categoria`, `Codigo_contrato`, `Dias_percepcion_I_T`, `Dias_accidente`. |
 
-Los números de empresa y los textos de las reglas 3 y 4 están escritos directamente en el código. Si cambian en origen, hay que actualizarlos.
+Examples of rule 7: `TÉCNICOS` → `TECNICOS`, `Categoría` → `Categoria`, `niñez` → `niñez`.
 
-## Errores controlados
+The company codes and the text values used in rules 3 and 4 are hardcoded. If they change at the source, update the script.
 
-| Situación | Mensaje |
+## Handled errors
+
+| Situation | Message |
 |---|---|
-| Sin argumento | `Uso: python LIMPIEZA_DATOS.py <archivo_excel>` |
-| Fichero inexistente | `FileNotFoundError` con la ruta |
-| Cabecera no localizada | `No se ha encontrado la fila de cabeceras en el Excel` |
-| Faltan columnas | `ValueError` con las faltantes y las detectadas |
+| No argument given | `Uso: python LIMPIEZA_DATOS.py <archivo_excel>` |
+| Input file does not exist | `FileNotFoundError` with the path |
+| Header row not found | `No se ha encontrado la fila de cabeceras en el Excel` |
+| Required columns missing | `ValueError` listing missing and detected columns |
 
-## Correcciones necesarias en el script
+## Known limitations
 
-Se han detectado dos problemas al revisar el código. Hay que corregirlos para que el script y este README coincidan.
+- **Runs on import.** All processing happens at module level, with no `main()` or `if __name__ == "__main__"` guard. The script cannot be imported or unit-tested without executing it.
+- **Hardcoded rules.** Company codes and termination texts live in the code.
+- **Header within the first 10 rows.** If there are more preamble rows, detection fails.
+- **No discard report.** The script does not say how many rows each rule removed.
+- **CSV separator is `,`.** If the target expects `;`, set `sep=";"` in `to_csv`.
+- **Messages are in Spanish.** Console output and errors are not translated.
 
-### 1. Error de sintaxis al inicio del fichero (el script no arranca)
+## Repository hygiene
 
-Las líneas 1 y 2 son:
+Add this to `.gitignore` so personal data is never committed:
 
 ```text
-#Python
-Python script
+*.xlsx
+*.csv
+SQL/
 ```
-
-La segunda es texto suelto y provoca `SyntaxError`. Hay que borrar ambas líneas, o comentar la segunda con `#`.
-
-### 2. La `ñ` no se conserva: se convierte en `n`
-
-`unicodedata.normalize("NFD", ...)` descompone `ñ` en `n` más una tilde combinada (U+0303). Por eso la comparación `caracter == "ñ"` nunca se cumple. La tilde se elimina por ser categoría `Mn`, y `niñez` acaba como `ninez`. Afecta a los valores y a las cabeceras.
-
-Propuesta para `quitar_acentos`: conservar la tilde U+0303 solo cuando va detrás de `n` o `N`.
-
-```python
-def quitar_acentos(valor):
-    if not isinstance(valor, str):
-        return valor
-
-    resultado = []
-    for caracter in unicodedata.normalize("NFD", valor):
-        if caracter == "̃" and resultado and resultado[-1] in "nN":
-            resultado.append(caracter)
-        elif unicodedata.category(caracter) != "Mn":
-            resultado.append(caracter)
-
-    return unicodedata.normalize("NFC", "".join(resultado))
-```
-
-Con este cambio, `niñez` pasa a `niñez` y `TÉCNICOS` pasa a `TECNICOS`.
-
-## Limitaciones conocidas
-
-- **Ejecución al importar.** Todo el procesado está a nivel de módulo, sin `main()` ni `if __name__ == "__main__"`. No se puede importar ni testear sin que se ejecute.
-- **Reglas fijas.** Los códigos de empresa y los textos de baja están escritos en el código.
-- **Cabecera en las 10 primeras filas.** Si hay más filas previas, no la detecta.
-- **Sin informe de descartes.** No indica cuántas filas se eliminan por cada regla.
-- **Separador CSV.** Es `,`. Si el destino espera `;`, hay que indicarlo en `to_csv`.
-- **Datos personales.** El Excel y el CSV nunca deben subirse al repositorio. Se recomienda añadir `*.xlsx`, `*.csv` y `SQL/` a `.gitignore`.
