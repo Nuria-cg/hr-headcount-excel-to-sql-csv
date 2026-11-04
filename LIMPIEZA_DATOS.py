@@ -34,22 +34,18 @@ def construir_ruta_salida(ruta_entrada):
 
 
 def quitar_acentos(valor):
-    if pd.isna(valor):
-        return valor
-
     if not isinstance(valor, str):
         return valor
 
     resultado = []
     for caracter in unicodedata.normalize("NFD", valor):
-        if caracter == "ñ":
-            resultado.append("ñ")
-        elif caracter == "Ñ":
-            resultado.append("Ñ")
+        # NFD descompone ñ en n + tilde (U+0303): se conserva solo tras n/N
+        if caracter == "̃" and resultado and resultado[-1] in "nN":
+            resultado.append(caracter)
         elif unicodedata.category(caracter) != "Mn":
             resultado.append(caracter)
 
-    return "".join(resultado)
+    return unicodedata.normalize("NFC", "".join(resultado))
 
 
 def limpiar_cabecera(valor):
@@ -160,5 +156,7 @@ for col in columnas_enteras:
 
 # === Exportar CSV ============================================================
 df.to_csv(OUTPUT_FILE, index=False, encoding="utf-8-sig")
+
+print(f"OK: archivo generado en {OUTPUT_FILE}")
 
 print(f"OK: archivo generado en {OUTPUT_FILE}")
